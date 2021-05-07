@@ -1,13 +1,8 @@
 use rand::Rng;
-use std::error::Error;
 use std::fs::File;
-use std::io::SeekFrom;
-use std::io::prelude::*;
 use std::io;
+use std::io::prelude::*;
 use std::mem;
-use byteorder::{LittleEndian, NativeEndian};
-use std::any::TypeId;
-use std::convert::TryInto;
 
 const MNIST_LABEL_MAGIC: u32 = 0x00000801;
 const MNIST_IMAGE_MAGIC: u32 = 0x00000803;
@@ -31,9 +26,7 @@ struct MnistImage {
 
 impl MnistImage {
     fn new(pixels: [u8; MNIST_IMAGE_SIZE]) -> Self {
-        Self {
-            pixels
-        }
+        Self { pixels }
     }
 }
 
@@ -44,8 +37,8 @@ struct MnistDataset {
 }
 
 struct MnistDatasetSlice<'a> {
-    images: &'a[MnistImage],
-    labels: &'a[u8],
+    images: &'a [MnistImage],
+    labels: &'a [u8],
     size: usize,
 }
 
@@ -86,7 +79,10 @@ fn get_labels(path: &str) -> io::Result<Vec<u8>> {
     };
 
     if MNIST_LABEL_MAGIC != header.magic_number {
-        return Err(io::Error::new(io::ErrorKind::Other, "magic number doesn't match!"));
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "magic number doesn't match!",
+        ));
     }
 
     let mut labels: Vec<u8> = Vec::with_capacity(header.number_of_labels as usize);
@@ -107,20 +103,29 @@ fn get_images(path: &str) -> io::Result<Vec<MnistImage>> {
     };
 
     if MNIST_IMAGE_MAGIC != header.magic_number {
-        return Err(io::Error::new(io::ErrorKind::Other, "magic number doesn't match!"));
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "magic number doesn't match!",
+        ));
     }
 
     if MNIST_IMAGE_WIDTH != header.number_of_rows {
-        return Err(io::Error::new(io::ErrorKind::Other, "row number doesn't match!"));
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "row number doesn't match!",
+        ));
     }
 
     if MNIST_IMAGE_HEIGHT != header.number_of_columns {
-        return Err(io::Error::new(io::ErrorKind::Other, "column number doesn't match!"));
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "column number doesn't match!",
+        ));
     }
 
     let mut images: Vec<MnistImage> = Vec::with_capacity(header.number_of_images as usize);
 
-    for i in 0..header.number_of_images {
+    for _ in 0..header.number_of_images {
         let mut buf = [0u8; mem::size_of::<MnistImage>()];
         f.read_exact(&mut buf[..])?;
         // when pushed to Vec, it's moved from stack to heap
@@ -152,14 +157,18 @@ fn mnist_get_dataset(images_file: &str, labels_file: &str) -> Result<MnistDatase
 
 fn init_nn() -> NeuralNetwork {
     let mut rng = rand::thread_rng();
-    let mut network = NeuralNetwork {
+    let network = NeuralNetwork {
         b: [rng.gen(); MNIST_LABELS],
-        w: [[rng.gen(); MNIST_IMAGE_SIZE]; MNIST_LABELS]
+        w: [[rng.gen(); MNIST_IMAGE_SIZE]; MNIST_LABELS],
     };
     network
 }
 
-fn mnist_batch(dataset: &MnistDataset, mut size: usize, index: usize) -> Result<MnistDatasetSlice, &str> {
+fn mnist_batch(
+    dataset: &MnistDataset,
+    mut size: usize,
+    index: usize,
+) -> Result<MnistDatasetSlice, &str> {
     let start_offset = size * index;
 
     if start_offset >= dataset.size {
@@ -170,10 +179,10 @@ fn mnist_batch(dataset: &MnistDataset, mut size: usize, index: usize) -> Result<
         size = dataset.size - start_offset;
     }
 
-    let mut batch = MnistDatasetSlice {
+    let batch = MnistDatasetSlice {
         images: &dataset.images[start_offset..(start_offset + size)],
         labels: &dataset.labels[start_offset..(start_offset + size)],
-        size: size
+        size,
     };
 
     return Ok(batch);
@@ -207,8 +216,11 @@ fn neural_network_softmax(activations: &mut [f32; MNIST_LABELS]) {
 
 // Use the weights and bias vector to forward propogate through the neural
 // network and calculate the activations.
-fn neural_network_hypothesis(image: &MnistImage, network: &NeuralNetwork, activations: &mut [f32;
-                             MNIST_LABELS]) {
+fn neural_network_hypothesis(
+    image: &MnistImage,
+    network: &NeuralNetwork,
+    activations: &mut [f32; MNIST_LABELS],
+) {
     for i in 0..MNIST_LABELS {
         activations[i] = network.b[i];
 
@@ -224,19 +236,27 @@ fn neural_network_hypothesis(image: &MnistImage, network: &NeuralNetwork, activa
 // contributions from a single training example (image).
 //
 // This function returns the loss ontribution from this training example.
-fn neural_network_gradient_update(image: &MnistImage, network: &NeuralNetwork, gradient:
-                                  &mut NeuralNetworkGradient, label: u8) -> f32 {
+fn neural_network_gradient_update(
+    image: &MnistImage,
+    network: &NeuralNetwork,
+    gradient: &mut NeuralNetworkGradient,
+    label: u8,
+) -> f32 {
     let mut activations = [0.0; MNIST_LABELS];
     //float b_grad, W_grad;
-    let mut b_grad = 0.0;
-    let mut w_grad = 0.0;
+    let mut b_grad: f32;
+    let mut w_grad: f32;
 
     // First forward propagate through the network to calculate activations
     neural_network_hypothesis(&image, &network, &mut activations);
 
     for i in 0..MNIST_LABELS {
         // This is the gradient for a softmax bias input
-        b_grad = if i == label as usize { activations[i] - 1.0 } else { activations[i] };
+        b_grad = if i == label as usize {
+            activations[i] - 1.0
+        } else {
+            activations[i]
+        };
 
         for j in 0..MNIST_IMAGE_SIZE {
             // The gradient for the neuron weight is the bias multiplied by the input weight
@@ -254,19 +274,26 @@ fn neural_network_gradient_update(image: &MnistImage, network: &NeuralNetwork, g
     0.0 - (activations[label as usize]).ln()
 }
 
-
 // Run one step of gradient descent and update the neural network.
-fn neural_network_training_step(dataset: &MnistDatasetSlice, network: &mut NeuralNetwork,
-                                learning_rate: f32) -> f32 {
+fn neural_network_training_step(
+    dataset: &MnistDatasetSlice,
+    network: &mut NeuralNetwork,
+    learning_rate: f32,
+) -> f32 {
     let mut gradient = NeuralNetworkGradient {
         b_grad: [0.0; MNIST_LABELS],
-        w_grad: [[0.0; MNIST_IMAGE_SIZE]; MNIST_LABELS]
+        w_grad: [[0.0; MNIST_IMAGE_SIZE]; MNIST_LABELS],
     };
     let mut total_loss = 0.0;
 
     // Calculate the gradient and the loss by looping through the training set
     for i in 0..dataset.size {
-        total_loss += neural_network_gradient_update(&dataset.images[i], &network, &mut gradient, dataset.labels[i]);
+        total_loss += neural_network_gradient_update(
+            &dataset.images[i],
+            &network,
+            &mut gradient,
+            dataset.labels[i],
+        );
     }
 
     // Apply gradient descent to the network
@@ -285,7 +312,7 @@ fn neural_network_training_step(dataset: &MnistDatasetSlice, network: &mut Neura
 fn calculate_accuracy(dataset: &MnistDataset, network: &NeuralNetwork) -> f32 {
     let mut activations = [0.0; MNIST_LABELS];
     let mut correct = 0;
-    let mut predict = 0u8;
+    let mut predict: u8;
 
     // Loop through the dataset
     for i in 0..dataset.size {
@@ -315,14 +342,13 @@ fn calculate_accuracy(dataset: &MnistDataset, network: &NeuralNetwork) -> f32 {
 fn main() {
     let mut loss: f32;
     let mut accuracy: f32;
-    let i: usize;
     let batches: usize;
 
     // Read the datasets from the files
     let train_dataset = mnist_get_dataset(TRAIN_IMAGES_FILE, TRAIN_LABELS_FILE)
         .expect("Failed to get training dataset");
-    let test_dataset = mnist_get_dataset(TEST_IMAGES_FILE, TEST_LABELS_FILE)
-    .expect("Failed to get test dataset");
+    let test_dataset =
+        mnist_get_dataset(TEST_IMAGES_FILE, TEST_LABELS_FILE).expect("Failed to get test dataset");
 
     // Initialize weights and biases with random values
     let mut network: NeuralNetwork = init_nn();
@@ -341,7 +367,12 @@ fn main() {
         // Calculate the accuracy using the whole test dataset
         accuracy = calculate_accuracy(&test_dataset, &network);
 
-        println!("Step {}\tAverage Loss: {}\tAccuracy: {}\n", i, loss / batch.size as f32, accuracy);
+        println!(
+            "Step {}\tAverage Loss: {}\tAccuracy: {}\n",
+            i,
+            loss / batch.size as f32,
+            accuracy
+        );
     }
 
     println!("Hello, world!");
